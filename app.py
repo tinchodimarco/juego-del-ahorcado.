@@ -1,0 +1,98 @@
+import os
+import secrets
+
+from flask import Flask, redirect, render_template, request, session, url_for
+from src.ahorcado import Ahorcado
+
+app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
+
+
+def cargar_juego() -> Ahorcado:
+    datos_juego = session.get("juego")
+    if datos_juego is None:
+        return Ahorcado()
+
+    juego = Ahorcado(
+        datos_juego["palabra"],
+        intentos=datos_juego["intentos"],
+        dificultad=datos_juego.get("dificultad", "normal"),
+    )
+    juego.letras_adivinadas = set(datos_juego["letras_adivinadas"])
+    juego.letras_incorrectas = set(datos_juego["letras_incorrectas"])
+    return juego
+
+
+def guardar_juego(juego: Ahorcado) -> None:
+    session["juego"] = {
+        "palabra": juego.palabra_secreta,
+        "dificultad": juego.dificultad,
+        "intentos": juego.intentos,
+        "letras_adivinadas": sorted(juego.letras_adivinadas),
+        "letras_incorrectas": sorted(juego.letras_incorrectas),
+    }
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    # Permitimos recibir la dificultad por parámetro GET (ej: ?dificultad=dificil)
+    dificultad_param = request.args.get("dificultad")
+    palabra_inicial = request.args.get("word")
+    
+    if palabra_inicial or dificultad_param:
+        dificultad = dificultad_param if dificultad_param else "normal"
+        intentos_iniciales = request.args.get("intentos", type=int)
+        
+        if intentos_iniciales is not None:
+            juego_actual = Ahorcado(palabra_inicial, intentos=intentos_iniciales, dificultad=dificultad)
+        else:
+            juego_actual = Ahorcado(palabra_inicial, dificultad=dificultad)
+    else:
+        juego_actual = cargar_juego()
+
+    # POST: adivinar letra
+    if request.method == "POST":
+        letra_ingresada = request.form.get("letra")
+        if letra_ingresada:
+            if Ahorcado.es_letra_valida(letra_ingresada):
+                juego_actual.adivinar_letra(letra_ingresada)
+            else:
+                session["aviso"] = "Ingresá una sola letra"
+        guardar_juego(juego_actual)
+        return redirect(url_for('index'))
+
+    # Renderizar vista pasando la palabra enmascarada y los intentos restantes
+    guardar_juego(juego_actual)
+    palabra_a_mostrar = juego_actual.palabra_enmascarada()
+    intentos_a_mostrar = juego_actual.intentos
+    letras_erradas = ", ".join(sorted(juego_actual.letras_incorrectas))
+
+    mensaje = ""
+    if juego_actual.esta_ganado():
+        mensaje = "¡Ganaste!"
+    elif juego_actual.esta_perdido():
+        mensaje = "¡Perdiste!"
+    aviso = session.pop("aviso", None)
+
+    return render_template(
+        "index.html",
+        palabra=palabra_a_mostrar,
+        intentos=intentos_a_mostrar,
+        letras_incorrectas=letras_erradas,
+        mensaje=mensaje,
+        aviso=aviso,
+        juego=juego_actual
+    )
+
+@app.route("/reiniciar")
+def reiniciar():
+    dificultad_actual = cargar_juego().dificultad
+    guardar_juego(Ahorcado(dificultad=dificultad_actual))
+    return redirect(url_for('index'))
+
+@app.route("/reset")
+def reset():
+    session.clear()
+    return "", 200
+
+if __name__ == "__main__": # pragma: no cover 
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")

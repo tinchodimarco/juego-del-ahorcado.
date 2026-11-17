@@ -1,0 +1,10 @@
+# Cache de Python y archivos compilados
+__pycache__/
+*.py[cod]
+*$py.class
+
+venv/
+
+coverage.xml
+.pytest_cache/
+htmlcov/

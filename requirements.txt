@@ -1,0 +1,6 @@
+flask
+gunicorn
+pytest
+pytest-cov
+behave
+playwright
